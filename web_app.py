@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from dataclasses import dataclass
 
 # 1. 페이지 설정
-st.set_page_config(page_title="TechRefurb Manager Pro v2.3", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="TechRefurb Manager Pro v2.4", page_icon="🛠️", layout="wide")
 
 # 2. Supabase 연결
 @st.cache_resource
@@ -48,8 +48,8 @@ def calculate_prices(item: DeviceItem):
     bungeae = round(dangeun * 1.04, -4)
     return int(total_cost), int(dangeun), int(bungeae)
 
-st.title("🛠️ TechRefurb Manager Pro (v2.3)")
-st.caption("애플 디바이스 수리/리셀 데이터베이스 & 대시보드 통계 시스템")
+st.title("🛠️ TechRefurb Manager Pro (v2.4)")
+st.caption("애플 디바이스 수리/리셀 데이터베이스 & 수수료 정산 시스템")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📋 전체 매물 관리", 
@@ -60,7 +60,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# TAB 1: 전체 매물 관리
+# TAB 1: 전체 매물 관리 (상세 정보 수정 & 수수료 계산)
 # ==========================================
 with tab1:
     st.subheader("📋 전체 매물 요약 목록")
@@ -88,75 +88,98 @@ with tab1:
             "status": "진행 상태"
         }
         df_summary = df_summary.rename(columns=rename_summary)
-        
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
         st.markdown("---")
-        
         st.subheader("🔍 매물 상세 정보 보기 및 수정")
         item_options = {f"[{item['id']}] {item['item_name']} ({item.get('status', '상태미정')})": item for item in data}
         selected_label = st.selectbox("상세 정보를 조회할 매물을 선택하세요", list(item_options.keys()))
         
         if selected_label:
             item = item_options[selected_label]
+            item_id = item['id']
             
+            # 추천가 추출 및 최상단 표시
+            notes_str = item.get("notes", "") or ""
+            st.markdown(f"# 📱 {item.get('item_name', '미지정 기종')}")
+            st.caption(f"등록일시: {item.get('created_at', '')[:16]} | 매물 ID: {item_id}")
+
+            # 추천가 대형 표시 (최상단)
+            if "[추천가]" in notes_str:
+                rec_part = notes_str.split("[추천가]")[-1].strip()
+                st.success(f"💡 **AI 시스템 추천 판매가**: {rec_part}")
+            
+            st.markdown("---")
+
+            # --- 수치 계산 ---
             buy_p = int(item.get("buy_price", 0) or 0)
             repair_p = int(item.get("repair_cost", 0) or 0)
             total_cost = buy_p + repair_p
             target_p = int(item.get("target_price", 0) or 0)
-            net_profit = target_p - total_cost
-            
-            st.markdown(f"# 📱 {item.get('item_name', '미지정 기종')}")
-            st.caption(f"등록일시: {item.get('created_at', '')[:16]} | 매물 ID: {item.get('id')}")
-            
+            is_bungeae = bool(item.get("is_bungeae_pay", False))
+
+            # 번개장터 수수료 6% 적용 계산
+            fee = int(target_p * 0.06) if is_bungeae else 0
+            actual_receive = target_p - fee
+            net_profit = actual_receive - total_cost
+
+            # 상단 핵심 메트릭 카드
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("기기 매입가", f"{buy_p:,} 원")
             m2.metric("부품비", f"{repair_p:,} 원")
-            m3.metric("총 투입 원가 (매입+부품)", f"{total_cost:,} 원")
+            m3.metric("총 투입 원가", f"{total_cost:,} 원")
             
-            if item.get("status") == "판매 완료":
-                m4.metric("💰 실현 순수익", f"{net_profit:,} 원", delta=f"{net_profit:,} 원")
+            if is_bungeae:
+                m4.metric("💰 실입금액 (수수료 6% 차감)", f"{actual_receive:,} 원", delta=f"순수익: {net_profit:,} 원")
             else:
-                m4.metric("🎯 목표 판매가", f"{target_p:,} 원", delta=f"예상 수익: {net_profit:,} 원")
-            
+                m4.metric("💰 순수익", f"{net_profit:,} 원", delta=f"판매가: {target_p:,} 원")
+
+            if is_bungeae:
+                st.warning(f"⚡ 번개장터 결제건 (판매가: {target_p:,}원 | 수수료 6%: -{fee:,}원 ➔ 정산 입금액: {actual_receive:,}원)")
+
             st.markdown("---")
-            
-            col_d1, col_d2 = st.columns(2)
-            
-            with col_d1:
-                st.markdown("### 🛠️ 하드웨어 스펙")
-                st.write(f"- **카테고리**: {item.get('category', '-')}")
-                st.write(f"- **화면 크기**: {item.get('screen_size', '-')}")
-                st.write(f"- **메모리(RAM)**: {item.get('ram_size', '-')}")
-                st.write(f"- **저장공간(SSD)**: {item.get('storage_size', '-')}")
-                st.write(f"- **배터리 성능**: {item.get('battery_health', '-')}%")
-            
-            with col_d2:
-                st.markdown("### 💳 결제 계좌 & 비고")
-                st.write(f"- **매입 결제 계좌**: {item.get('buy_account', '-')}")
-                st.write(f"- **부품 결제 계좌**: {item.get('repair_account', '-')}")
-                st.write(f"- **현재 상태**: `{item.get('status', '-')}`")
-                st.info(f"📝 **메모 및 추천가**: {item.get('notes', '등록된 메모 없음')}")
-            
-            st.markdown("---")
-            col_act1, col_act2 = st.columns(2)
-            
-            with col_act1:
-                new_status = st.selectbox("진행 상태 변경", ["부품 대기", "수리 진행중", "판매 중", "판매 완료"], 
-                                          index=["부품 대기", "수리 진행중", "판매 중", "판매 완료"].index(item.get('status', '부품 대기')) if item.get('status') in ["부품 대기", "수리 진행중", "판매 중", "판매 완료"] else 0,
-                                          key=f"status_select_{item['id']}")
-                if st.button("상태 업데이트", key=f"btn_status_{item['id']}"):
-                    supabase.table("inventory").update({"status": new_status}).eq("id", item['id']).execute()
-                    st.success(f"상태가 '{new_status}'로 변경되었습니다.")
+            st.markdown("### ✏️ 매물 상세 정보 수정")
+
+            # 상세 정보 수정 폼
+            with st.form(f"edit_form_{item_id}"):
+                c_e1, c_e2 = st.columns(2)
+                
+                with c_e1:
+                    edit_buy_price = st.number_input("기기 매입가 (원)", value=buy_p, step=10000)
+                    edit_repair_cost = st.number_input("부품비 (원)", value=repair_p, step=5000)
+                    edit_target_price = st.number_input("목표/실제 판매가 (원)", value=target_p, step=10000)
+                    edit_is_bungeae = st.checkbox("⚡ 번개장터 판매 (수수료 6% 차감 적용)", value=is_bungeae)
+                
+                with c_e2:
+                    edit_status = st.selectbox("진행 상태", ["부품 대기", "수리 진행중", "판매 중", "판매 완료"],
+                                               index=["부품 대기", "수리 진행중", "판매 중", "판매 완료"].index(item.get('status', '부품 대기')) if item.get('status') in ["부품 대기", "수리 진행중", "판매 중", "판매 완료"] else 0)
+                    # [추천가] 문구를 제외한 순수 메모만 수정 가능하도록 가공
+                    pure_notes = notes_str.split("| [추천가]")[0].strip() if "| [추천가]" in notes_str else notes_str
+                    edit_notes = st.text_area("메모 및 특이사항", value=pure_notes)
+
+                save_btn = st.form_submit_button("💾 수정 사항 저장하기")
+
+                if save_btn:
+                    # 추천가 정보 유지하면서 메모 업데이트
+                    updated_notes = f"{edit_notes} | [추천가]{notes_str.split('[추천가]')[-1]}" if "[추천가]" in notes_str else edit_notes
+                    
+                    supabase.table("inventory").update({
+                        "buy_price": edit_buy_price,
+                        "repair_cost": edit_repair_cost,
+                        "target_price": edit_target_price,
+                        "status": edit_status,
+                        "is_bungeae_pay": edit_is_bungeae,
+                        "notes": updated_notes
+                    }).eq("id", item_id).execute()
+                    
+                    st.success(f"ID [{item_id}] 번 매물 정보가 성공적으로 수정되었습니다!")
                     st.rerun()
 
-            with col_act2:
-                st.write(" ")
-                st.write(" ")
-                if st.button("🚨 이 매물 완전히 삭제하기", type="primary", key=f"btn_del_{item['id']}"):
-                    supabase.table("inventory").delete().eq("id", item['id']).execute()
-                    st.warning("매물이 삭제되었습니다.")
-                    st.rerun()
+            st.markdown("---")
+            if st.button("🚨 이 매물 완전히 삭제하기", type="primary", key=f"btn_del_{item_id}"):
+                supabase.table("inventory").delete().eq("id", item_id).execute()
+                st.warning("매물이 삭제되었습니다.")
+                st.rerun()
 
 # ==========================================
 # TAB 2: 신규 매물 등록
@@ -206,6 +229,7 @@ with tab2:
                 is_box = st.checkbox("풀박스 포함 여부", value=True)
             with c_check2:
                 has_tt = st.checkbox("트루톤(TrueTone) 지원", value=True)
+                is_bungeae_pay = st.checkbox("⚡ 번개장터 판매 (수수료 6%)", value=False)
             
             status = st.selectbox("초기 진행 상태", ["부품 대기", "수리 진행중", "판매 중"])
             notes = st.text_area("수리 메모 및 특이사항", value="상판/액정 교체 필요.")
@@ -232,6 +256,7 @@ with tab2:
             "buy_account": buy_account,
             "repair_account": repair_account,
             "status": status,
+            "is_bungeae_pay": is_bungeae_pay,
             "notes": f"{notes} | [추천가] 당근:{dangeun_rec:,}원 / 번개:{bungeae_rec:,}원"
         }
         
@@ -332,10 +357,10 @@ with tab4:
     st.write(st.session_state.accounts)
 
 # ==========================================
-# TAB 5: 대시보드 통계 (개편 반영)
+# TAB 5: 대시보드 통계 (실현/예상 수익 분리 정산)
 # ==========================================
 with tab5:
-    st.subheader("📊 매물별 투자 및 손익 현황 대시보드")
+    st.subheader("📊 매물별 투자 및 실현/예상 손익 현황")
     res = supabase.table("inventory").select("*").order("created_at", desc=True).execute()
     all_data = res.data
 
@@ -344,39 +369,52 @@ with tab5:
     else:
         df_stat = pd.DataFrame(all_data)
         
-        # 금액 데이터 숫자 변환 및 계산
         df_stat["buy_price"] = df_stat["buy_price"].fillna(0).astype(int)
         df_stat["repair_cost"] = df_stat["repair_cost"].fillna(0).astype(int)
         df_stat["target_price"] = df_stat["target_price"].fillna(0).astype(int)
+        df_stat["is_bungeae_pay"] = df_stat["is_bungeae_pay"].fillna(False).astype(bool)
         
-        # 총 투입금액 = 매입금액 + 부품금액
+        # 총 투입 원가
         df_stat["total_investment"] = df_stat["buy_price"] + df_stat["repair_cost"]
         
-        # 순수익 = 판매(목표)금액 - 총 투입금액
-        df_stat["net_profit"] = df_stat["target_price"] - df_stat["total_investment"]
+        # 번개장터 수수료 6% 차감 계산 함수
+        def calc_receive_price(row):
+            if row["is_bungeae_pay"]:
+                return int(row["target_price"] * 0.94)
+            return row["target_price"]
+
+        df_stat["actual_receive"] = df_stat.apply(calc_receive_price, axis=1)
+        df_stat["net_profit"] = df_stat["actual_receive"] - df_stat["total_investment"]
 
         # 상단 핵심 KPI 요약 카드
         total_invest_sum = df_stat["total_investment"].sum()
-        total_target_sum = df_stat["target_price"].sum()
         
+        # 1. 실현 통계 (판매 완료 건)
         sold_mask = df_stat["status"] == "판매 완료"
-        realized_profit_sum = df_stat.loc[sold_mask, "net_profit"].sum()
+        realized_sales = df_stat.loc[sold_mask, "actual_receive"].sum()
+        realized_profit = df_stat.loc[sold_mask, "net_profit"].sum()
         
+        # 2. 예상 통계 (전체 매물 기준)
+        expected_sales = df_stat["actual_receive"].sum()
+        expected_profit = df_stat["net_profit"].sum()
+
         k1, k2, k3 = st.columns(3)
-        k1.metric("총 투입 금액 (매입+부품)", f"{total_invest_sum:,} 원")
-        k2.metric("총 예상/판매 금액", f"{total_target_sum:,} 원")
-        k3.metric("💰 총 실현 순수익 (판매완료 건)", f"{realized_profit_sum:,} 원")
+        k1.metric("총 투입 금액", f"{total_invest_sum:,} 원")
+        k2.metric("💰 총 실현 순수익 (판매 완료건)", f"{realized_profit:,} 원", delta=f"실입금액: {realized_sales:,}원")
+        k3.metric("🎯 예상 총 순수익 (전체 매물)", f"{expected_profit:,} 원", delta=f"예상 입금액: {expected_sales:,}원")
 
         st.markdown("---")
-        st.markdown("### 📋 매물별 손익 상세 현황")
+        st.markdown("### 📋 매물별 상세 정산 내역")
 
-        # 화면에 보여줄 데이터 표 가공
+        # 테이블 표시 가공
         df_display_stat = pd.DataFrame({
             "기종명": df_stat["item_name"],
             "진행 상태": df_stat["status"],
-            "투입 금액 (매입+부품)": df_stat["total_investment"].apply(lambda x: f"{x:,}원"),
-            "판매 (완료/목표) 금액": df_stat["target_price"].apply(lambda x: f"{x:,}원"),
-            "순수익 (실현/예상)": df_stat["net_profit"].apply(lambda x: f"{x:,}원")
+            "번개장터 여부": df_stat["is_bungeae_pay"].apply(lambda x: "⚡ 번개(6% 수수료)" if x else "일반/당근"),
+            "총 투입 원가": df_stat["total_investment"].apply(lambda x: f"{x:,}원"),
+            "판매(목표)가": df_stat["target_price"].apply(lambda x: f"{x:,}원"),
+            "정산 실입금액": df_stat["actual_receive"].apply(lambda x: f"{x:,}원"),
+            "순수익": df_stat["net_profit"].apply(lambda x: f"{x:,}원")
         })
 
         st.dataframe(df_display_stat, use_container_width=True, hide_index=True)
