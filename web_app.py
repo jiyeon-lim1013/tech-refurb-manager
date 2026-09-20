@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from dataclasses import dataclass
 
 # 1. 페이지 설정
-st.set_page_config(page_title="TechRefurb Manager Pro v2.4", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="TechRefurb Manager Pro v2.4.1", page_icon="🛠️", layout="wide")
 
 # 2. Supabase 연결
 @st.cache_resource
@@ -48,7 +48,7 @@ def calculate_prices(item: DeviceItem):
     bungeae = round(dangeun * 1.04, -4)
     return int(total_cost), int(dangeun), int(bungeae)
 
-st.title("🛠️ TechRefurb Manager Pro (v2.4)")
+st.title("🛠️ TechRefurb Manager Pro (v2.4.1)")
 st.caption("애플 디바이스 수리/리셀 데이터베이스 & 수수료 정산 시스템")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -60,7 +60,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# TAB 1: 전체 매물 관리 (상세 정보 수정 & 수수료 계산)
+# TAB 1: 전체 매물 관리
 # ==========================================
 with tab1:
     st.subheader("📋 전체 매물 요약 목록")
@@ -99,31 +99,26 @@ with tab1:
             item = item_options[selected_label]
             item_id = item['id']
             
-            # 추천가 추출 및 최상단 표시
             notes_str = item.get("notes", "") or ""
             st.markdown(f"# 📱 {item.get('item_name', '미지정 기종')}")
             st.caption(f"등록일시: {item.get('created_at', '')[:16]} | 매물 ID: {item_id}")
 
-            # 추천가 대형 표시 (최상단)
             if "[추천가]" in notes_str:
                 rec_part = notes_str.split("[추천가]")[-1].strip()
                 st.success(f"💡 **AI 시스템 추천 판매가**: {rec_part}")
             
             st.markdown("---")
 
-            # --- 수치 계산 ---
             buy_p = int(item.get("buy_price", 0) or 0)
             repair_p = int(item.get("repair_cost", 0) or 0)
             total_cost = buy_p + repair_p
             target_p = int(item.get("target_price", 0) or 0)
             is_bungeae = bool(item.get("is_bungeae_pay", False))
 
-            # 번개장터 수수료 6% 적용 계산
             fee = int(target_p * 0.06) if is_bungeae else 0
             actual_receive = target_p - fee
             net_profit = actual_receive - total_cost
 
-            # 상단 핵심 메트릭 카드
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("기기 매입가", f"{buy_p:,} 원")
             m2.metric("부품비", f"{repair_p:,} 원")
@@ -140,7 +135,6 @@ with tab1:
             st.markdown("---")
             st.markdown("### ✏️ 매물 상세 정보 수정")
 
-            # 상세 정보 수정 폼
             with st.form(f"edit_form_{item_id}"):
                 c_e1, c_e2 = st.columns(2)
                 
@@ -153,14 +147,12 @@ with tab1:
                 with c_e2:
                     edit_status = st.selectbox("진행 상태", ["부품 대기", "수리 진행중", "판매 중", "판매 완료"],
                                                index=["부품 대기", "수리 진행중", "판매 중", "판매 완료"].index(item.get('status', '부품 대기')) if item.get('status') in ["부품 대기", "수리 진행중", "판매 중", "판매 완료"] else 0)
-                    # [추천가] 문구를 제외한 순수 메모만 수정 가능하도록 가공
                     pure_notes = notes_str.split("| [추천가]")[0].strip() if "| [추천가]" in notes_str else notes_str
                     edit_notes = st.text_area("메모 및 특이사항", value=pure_notes)
 
                 save_btn = st.form_submit_button("💾 수정 사항 저장하기")
 
                 if save_btn:
-                    # 추천가 정보 유지하면서 메모 업데이트
                     updated_notes = f"{edit_notes} | [추천가]{notes_str.split('[추천가]')[-1]}" if "[추천가]" in notes_str else edit_notes
                     
                     supabase.table("inventory").update({
@@ -357,7 +349,7 @@ with tab4:
     st.write(st.session_state.accounts)
 
 # ==========================================
-# TAB 5: 대시보드 통계 (실현/예상 수익 분리 정산)
+# TAB 5: 대시보드 통계 (안전한 KeyError 방지 로직 적용)
 # ==========================================
 with tab5:
     st.subheader("📊 매물별 투자 및 실현/예상 손익 현황")
@@ -369,6 +361,10 @@ with tab5:
     else:
         df_stat = pd.DataFrame(all_data)
         
+        # 컬럼 누락 시 기본값 생성 (KeyError 예방)
+        if "is_bungeae_pay" not in df_stat.columns:
+            df_stat["is_bungeae_pay"] = False
+
         df_stat["buy_price"] = df_stat["buy_price"].fillna(0).astype(int)
         df_stat["repair_cost"] = df_stat["repair_cost"].fillna(0).astype(int)
         df_stat["target_price"] = df_stat["target_price"].fillna(0).astype(int)
@@ -379,7 +375,7 @@ with tab5:
         
         # 번개장터 수수료 6% 차감 계산 함수
         def calc_receive_price(row):
-            if row["is_bungeae_pay"]:
+            if row.get("is_bungeae_pay", False):
                 return int(row["target_price"] * 0.94)
             return row["target_price"]
 
